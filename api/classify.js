@@ -1,5 +1,24 @@
 const axios = require('axios');
 
+const normalizeName = (value) => {
+  if (Array.isArray(value)) {
+    value = value[0];
+  }
+
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
+};
+
+const sendError = (res, status, message) => {
+  return res.status(status).json({
+    status: 'error',
+    message
+  });
+};
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -10,24 +29,24 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { name } = req.query;
+    const normalizedName = normalizeName(req.query.name);
 
-    if (!name || typeof name !== 'string' || name.trim() === '') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Missing or empty name parameter'
-      });
+    if (!normalizedName) {
+      return sendError(res, 422, 'Missing or empty name parameter');
     }
 
-    const normalizedName = name.trim();
     const apiUrl = `https://api.genderize.io?name=${encodeURIComponent(normalizedName)}`;
     const { data } = await axios.get(apiUrl, { timeout: 5000 });
     const { gender, probability, count } = data || {};
 
     const probabilityValue = typeof probability === 'number' ? probability : parseFloat(probability) || 0;
     const sampleSize = Number.isInteger(count) ? count : parseInt(count, 10);
-
     const sample_size = Number.isNaN(sampleSize) ? 0 : sampleSize;
+
+    if (gender === null || gender === undefined || probabilityValue === 0 || sample_size === 0) {
+      return sendError(res, 422, 'Name could not be recognized or classified');
+    }
+
     const is_confident = probabilityValue >= 0.7 && sample_size >= 100;
     const processed_at = new Date().toISOString();
 
@@ -35,7 +54,7 @@ module.exports = async (req, res) => {
       status: 'success',
       data: {
         name: normalizedName.toLowerCase(),
-        gender: gender === null ? null : gender,
+        gender,
         probability: probabilityValue,
         sample_size,
         is_confident,
@@ -43,9 +62,6 @@ module.exports = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(502).json({
-      status: 'error',
-      message: 'External API unavailable'
-    });
+    return sendError(res, 502, 'External API unavailable');
   }
 };
