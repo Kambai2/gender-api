@@ -19,35 +19,33 @@ module.exports = async (req, res) => {
       });
     }
 
-    const apiUrl = `https://api.genderize.io?name=${encodeURIComponent(name)}`;
+    const normalizedName = name.trim();
+    const apiUrl = `https://api.genderize.io?name=${encodeURIComponent(normalizedName)}`;
     const { data } = await axios.get(apiUrl, { timeout: 5000 });
-    const { gender, probability, count } = data;
+    const { gender, probability, count } = data || {};
 
-    if (gender === null || count === 0) {
-      return res.status(200).json({
-        status: 'error',
-        message: 'No prediction available for the provided name'
-      });
-    }
+    const probabilityValue = typeof probability === 'number' ? probability : parseFloat(probability) || 0;
+    const sampleSize = Number.isInteger(count) ? count : parseInt(count, 10);
 
-    const is_confident = probability >= 0.7 && count >= 100;
+    const sample_size = Number.isNaN(sampleSize) ? 0 : sampleSize;
+    const is_confident = probabilityValue >= 0.7 && sample_size >= 100;
     const processed_at = new Date().toISOString();
 
     return res.status(200).json({
       status: 'success',
       data: {
-        name: name.toLowerCase(),
-        gender,
-        probability,
-        sample_size: count,
+        name: normalizedName.toLowerCase(),
+        gender: gender === null ? null : gender,
+        probability: probabilityValue,
+        sample_size,
         is_confident,
         processed_at
       }
     });
   } catch (error) {
-    return res.status(500).json({
+    return res.status(502).json({
       status: 'error',
-      message: 'Internal server error'
+      message: 'External API unavailable'
     });
   }
 };
