@@ -16,6 +16,22 @@ const normalizeName = (value) => {
   return value.trim();
 };
 
+const parseNameFromRequest = (req) => {
+  if (req.query && req.query.name) {
+    return normalizeName(req.query.name);
+  }
+
+  if (typeof req.url === 'string') {
+    const urlParts = req.url.split('?');
+    if (urlParts.length > 1) {
+      const params = new URLSearchParams(urlParts[1]);
+      return normalizeName(params.get('name'));
+    }
+  }
+
+  return '';
+};
+
 const sendError = (res, status, message) => {
   return res.status(status).json({
     status: 'error',
@@ -26,16 +42,18 @@ const sendError = (res, status, message) => {
 // CORS - Allow all origins
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
 
 // Main endpoint: GET /api/classify?name=john
 app.get('/api/classify', async (req, res) => {
   try {
-    const normalizedName = normalizeName(req.query.name);
+    const normalizedName = parseNameFromRequest(req);
 
     if (!normalizedName) {
-      return sendError(res, 422, 'Missing or empty name parameter');
+      return sendError(res, 400, 'Missing or empty name parameter');
     }
 
     const apiUrl = `https://api.genderize.io?name=${encodeURIComponent(normalizedName)}`;
@@ -46,14 +64,14 @@ app.get('/api/classify', async (req, res) => {
     const sampleSize = Number.isInteger(count) ? count : parseInt(count, 10);
     const sample_size = Number.isNaN(sampleSize) ? 0 : sampleSize;
 
-    if (gender === null || gender === undefined || probabilityValue === 0 || sample_size === 0) {
+    if (!gender || probabilityValue === 0 || sample_size === 0) {
       return sendError(res, 422, 'Name could not be recognized or classified');
     }
 
     const is_confident = probabilityValue >= 0.7 && sample_size >= 100;
     const processed_at = new Date().toISOString();
 
-    res.status(200).json({
+    return res.status(200).json({
       status: 'success',
       data: {
         name: normalizedName.toLowerCase(),
@@ -64,9 +82,8 @@ app.get('/api/classify', async (req, res) => {
         processed_at
       }
     });
-
   } catch (error) {
-    res.status(502).json({
+    return res.status(502).json({
       status: 'error',
       message: 'External API unavailable'
     });
